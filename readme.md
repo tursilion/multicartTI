@@ -10,8 +10,8 @@ The program itself is multimenuC.bin -- if you load it by itself, it will pop up
 
 To load your cart in Classic99 you have to edit classic99.ini to use it, add these lines:
 
-[usercart1]
-name=MultiMenu
+[usercart1]\
+name=MultiMenu\
 rom0=3|0000|80000|c:\work\ti\multicart\outcart3.bin
 
 (if you already havea usercart1, use the next number, etc). This will make it show under the user menu.)
@@ -22,13 +22,13 @@ multimenu.a99 is the source code, and is documented as much as I could as I went
 
 Now, to make the cartridge, I just concatenated files using the command prompt. Naturally you must ensure the files are exactly 8k (or padded to a multiple thereof) for this to work:
 
-C:\WORK\TI\Multicart>copy /y /b AMBULNCC.BIN + /b ANTC.BIN + /b ANTEATC.BIN + /b BOXERC.BIN + /b RABBITTC.BIN + /b multimenuC.bin OUTCART.BIN
-multimenuC.bin
-AMBULNCC.BIN
-ANTC.BIN
-ANTEATC.BIN
-BOXERC.BIN
-RABBITTC.BIN
+C:\WORK\TI\Multicart>copy /y /b AMBULNCC.BIN + /b ANTC.BIN + /b ANTEATC.BIN + /b BOXERC.BIN + /b RABBITTC.BIN + /b multimenuC.bin OUTCART.BIN\
+multimenuC.bin\
+AMBULNCC.BIN\
+ANTC.BIN\
+ANTEATC.BIN\
+BOXERC.BIN\
+RABBITTC.BIN\
         1 file(s) copied.
 
 (I didn't include the games - use any 8k games you have).
