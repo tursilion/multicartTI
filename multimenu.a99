@@ -1,0 +1,1165 @@
+*** TODO: add alphabetic sort to titles (optional)
+
+* Automatic multicart menu
+* version 0.6 - Mike Brent aka Tursi
+* Graphics by Sometimes99er
+* Supports up to 2MB, supports scrolling for about 300 entries
+* GROM support added - scans all GROMs and all bases
+* GROMs can now select a ROM bank before launching
+* Hex-editor configurable now - look for 'DATA'
+*
+* This program must be loaded in the startup bank
+* of the cartridge - whatever that is. Note that if
+* you don't provide hardware reset capability, that 
+* FCTN-= won't take you back to the menu.
+*
+* A nice workaround if you have GROM is to use a GPL powerup
+* routine to set the correct ROM bank.
+*
+* Note the following magic headers:
+*
+* >AA71 - indicates this menu program. NO OTHER TITLE
+* can use this header -- change the second byte in those
+* other titles. Otherwise the menu may crash, or launch
+* into the game, or other weird behaviour.
+*
+* >AA3F - tells the menu to NOT display this bank (while
+* leaving a valid powerup for the TI.) This is probably
+* going to be more useful with the 16k titles to prevent
+* a double entry in case they have different headers on
+* their different banks - change the header of one of the
+* banks to this value to prevent seeing two entries.
+* (Although duplicates are now hidden anyway, so just in case)
+*
+* >A55A - treat this header as valid (even though the console won't)
+* this lets you have titles that do not show on the selection menu.
+*
+* >AA5A - check for a program list header at >7800 (GROM only)
+* this lets you have the header enabled, but no program list shows
+* in the console selection menu. The header format at >7800
+* is the same as for >6000. (This also works for the other GROMs + >1800)
+* Note that the name header at >6000 is NOT checked in this case!
+* This is useful for hiding the program entries of GROMs that still
+* need to expose subprograms, DSRs or powerup code.
+*
+* For GROMs, the value in byte 3 is used to select a ROM bank before
+* the GROM is started - this can help with combination ROM/GROM carts.
+* this value is multiplied by 2 and then added to >6000 to select the
+* bank, so can support the full 2MB of ROM. It is basically the bank
+* index. For instance, >00 will write to >6000, >01 will write to >6002,
+* >02 will write to >6004, >03 will write to >6006, etc.
+
+* for testing (needs Supercart to load RAM there)
+	DEF START
+
+* Used references (will be hard linked)
+VDPWA	EQU >8C02
+VDPWD	EQU >8C00
+VDPRD	EQU	>8800
+VDPST	EQU	>8802
+SCAN	EQU >000E
+GPLWS	EQU >83E0
+
+* This ROM loads at >6000 in CPU space
+	AORG >6000
+
+* VDP workspace
+* each entry is 32 bytes long. First two bytes are
+* the bank address, second two are the program address
+* third two are the rom bank address for GROMs, followed by up to 26 bytes of name
+* If not GROM, then the rom bank address for GROMs is zeroed.
+* If it IS GROM, the ROM bank address is read from byte 3 of the header,
+* multiplied by two and added to >6000.
+VDPBASE	EQU >1200
+
+* Scratchpad backup in VDP
+* To ease re-entry into GPL (when needed), we just
+* save off the scratchpad and restore it when launching
+VDPSCRATCH EQU >400
+
+* Standard Header - note we are using a version of
+* 71 to indicate a header that the menu should not
+* list! (And to find ourselves in the cart!)
+	DATA >AA71,>0100,>0000,NAMELST,>0000,>0000,>4C69,>6F6E
+NAMELST	DATA >0000,START,>094D			* Contains first letter 'M'
+	TEXT 'ULTICART'				* to work around Asm994a limits
+
+	EVEN
+HIBIT	DATA >8000
+
+* hex-editor accessible configuration with a little tag
+  EVEN
+   TEXT 'DATA'
+
+* Set this to the highest ROM bank address to scan >61FE is 2MB of ROM
+HIGHEST
+   DATA >61FE
+* Set this to the lowest GROM index to search (>0000 includes TI BASIC, >6000 is cart only)
+GPLSTART
+   DATA >0000
+   
+* end of area
+   TEXT 'DATA'
+
+* Character set - starting with char 30 - this gives us nice lowercase ;)
+* >0308 bytes
+	EVEN
+CHARS
+	DATA >7070,>7070,>7070,>7000,>BFBF,>A3AF,>E3EF,>EFFF
+	DATA >0000,>0000,>0000,>0000,>1010,>1010,>1000,>1000
+	DATA >2828,>2800,>0000,>0000,>0028,>7C28,>287C,>2800
+	DATA >103C,>5038,>1478,>1000,>0044,>4C18,>3064,>4400
+	DATA >0020,>5020,>5448,>3400,>0810,>2000,>0000,>0000
+	DATA >0810,>2020,>2010,>0800,>2010,>0808,>0810,>2000
+	DATA >4428,>7C28,>4400,>0000,>0010,>107C,>1010,>0000
+	DATA >0000,>0000,>0030,>1020,>0000,>007C,>0000,>0000
+	DATA >0000,>0000,>0030,>3000,>0004,>0810,>2040,>0000
+	DATA >3844,>4C54,>5464,>3800,>1030,>1010,>1010,>3800
+	DATA >3844,>4408,>1020,>7C00,>7C08,>1008,>0444,>3800
+	DATA >0818,>2848,>7C08,>0800,>7840,>4078,>0444,>3800
+	DATA >3840,>4078,>4444,>3800,>7C04,>0408,>1020,>2000
+	DATA >3844,>4438,>4444,>3800,>3844,>4444,>3C04,>7800
+	DATA >0000,>3030,>0030,>3000,>0000,>3030,>0030,>1020
+	DATA >0000,>1020,>4020,>1000,>0000,>007C,>007C,>0000
+	DATA >0000,>1008,>0408,>1000,>0038,>4408,>1000,>1000
+	DATA >0038,>4454,>5840,>3C00,>3844,>447C,>4444,>4400
+	DATA >7844,>4478,>4444,>7800,>3844,>4040,>4044,>3800
+	DATA >7824,>2424,>2424,>3800,>7C40,>4078,>4040,>7C00
+	DATA >7C40,>4078,>4040,>4000,>3844,>4440,>4C44,>3800
+	DATA >4444,>447C,>4444,>4400,>3810,>1010,>1010,>3800
+	DATA >0404,>0404,>0444,>3800,>4448,>5070,>4844,>4400
+	DATA >4040,>4040,>4040,>7C00,>446C,>5444,>4444,>4400
+	DATA >4444,>6454,>4C44,>4400,>3844,>4444,>4444,>3800
+	DATA >7844,>4444,>7840,>4000,>3844,>4444,>544C,>3C00
+	DATA >7844,>4478,>5048,>4400,>3C40,>4038,>0404,>7800
+	DATA >7C10,>1010,>1010,>1000,>4444,>4444,>4444,>3800
+	DATA >4444,>4444,>4428,>1000,>4444,>4444,>5454,>2800
+	DATA >4444,>2810,>1028,>4400,>4444,>4428,>1010,>1000
+	DATA >7C04,>0810,>2040,>7C00,>0038,>2020,>2020,>3800
+	DATA >0000,>4020,>1008,>0400,>0038,>0808,>0808,>3800
+	DATA >0010,>2844,>0000,>0000,>0000,>0000,>0000,>7C00
+* 96 (lowercase)
+	DATA >2010,>0800,>0000,>0000,>0000,>3804,>3C44,>3C00
+	DATA >4040,>7844,>4444,>7800,>0000,>3844,>4040,>3800
+	DATA >0404,>3C44,>4444,>3C00,>0000,>3844,>7C40,>3800
+	DATA >0C10,>3810,>1010,>1000,>0000,>3C44,>443C,>0438
+	DATA >4040,>7844,>4444,>4400,>1000,>1010,>1010,>3800
+	DATA >0800,>0808,>0808,>4830,>4040,>4448,>7048,>4400
+	DATA >3010,>1010,>1010,>3800,>0000,>6854,>5454,>5400
+	DATA >0000,>5864,>4444,>4400,>0000,>3844,>4444,>3800
+	DATA >0000,>7844,>4444,>7840,>0000,>3C44,>4444,>3C04
+	DATA >0000,>2834,>2020,>2000,>0000,>3C40,>3804,>7800
+	DATA >0010,>3810,>1010,>0C00,>0000,>4444,>444C,>3400
+	DATA >0000,>4444,>4428,>1000,>0000,>5454,>5454,>2800
+	DATA >0000,>4428,>1028,>4400,>0000,>4444,>443C,>0438
+	DATA >0000,>7C08,>1020,>7C00,>000C,>1010,>2010,>100C
+	DATA >0010,>1010,>0010,>1010,>0060,>1010,>0810,>1060
+	DATA >0000,>2054,>0800,>0000
+* 122 is last
+
+* Menu font by Sometimes99er
+	EVEN
+MENUFN
+	DATA >0000,>0000,>0000,>0000  * space
+	DATA >0018,>1818,>1818,>0018  * >21  !
+	DATA >006C,>6C24,>0000,>0000  * >22  DOUBLEQUOTES
+	DATA >006C,>6CFE,>6CFE,>6C6C  * >23  #
+	DATA >0078,>DCD0,>7C16,>D67C  * >24  $
+	DATA >00C0,>CC18,>3060,>CC0C  * >25  %
+	DATA >0070,>D8D8,>70D6,>CC76  * >26  &
+	DATA >0018,>1830,>0000,>0000  * >27  '
+	DATA >0008,>1030,>3030,>1008  * >28  (
+	DATA >0020,>1018,>1818,>1020  * >29  )
+	DATA >0000,>6C38,>7C38,>6C00  * >2A  *
+	DATA >0000,>3030,>FC30,>3000  * >2B  +
+	DATA >0000,>0000,>0030,>3020  * >2C  ,
+	DATA >0000,>0000,>7C00,>0000  * >2D  -
+	DATA >0000,>0000,>0000,>3030  * >2E  .
+	DATA >0000,>060C,>1830,>6000  * >2F  /
+	DATA >0038,>4CC6,>C6C6,>6438  * >30  0
+	DATA >0018,>3818,>1818,>187E  * >31  1
+	DATA >007C,>C60E,>3C78,>E0FE  * >32  2
+	DATA >007E,>0C18,>3C06,>C67C  * >33  3
+	DATA >001C,>3C6C,>CCFE,>0C0C  * >34  4
+	DATA >00FC,>C0FC,>0606,>C67C  * >35  5
+	DATA >003C,>60C0,>FCC6,>C67C  * >36  6
+	DATA >00FE,>C60C,>1830,>3030  * >37  7
+	DATA >0078,>C4E4,>789E,>867C  * >38  8
+	DATA >007C,>C6C6,>7E06,>0C78  * >39  9
+	DATA >0000,>3030,>0030,>3000  * >3A  COLON
+	DATA >0000,>3030,>0030,>3020  * >3B  SEMICOLON
+	DATA >0018,>3060,>C060,>3018  * >3C  <
+	DATA >0000,>007C,>007C,>0000  * >3D  =
+	DATA >0060,>3018,>0C18,>3060  * >3E  >
+	DATA >0078,>CC0C,>1830,>0030  * >3F  ?
+	DATA >007C,>C6DE,>D6DE,>C078  * >40  @
+	DATA >0038,>6CC6,>C6FE,>C6C6  * >41  A
+	DATA >00FC,>C6C6,>FCC6,>C6FC  * >42  B
+	DATA >003C,>66C0,>C0C0,>663C  * >43  C
+	DATA >00F8,>CCC6,>C6C6,>CCF8  * >44  D
+	DATA >00FE,>C0C0,>FCC0,>C0FE  * >45  E
+	DATA >00FE,>C0C0,>FCC0,>C0C0  * >46  F
+	DATA >003E,>60C0,>CEC6,>663E  * >47  G
+	DATA >00C6,>C6C6,>FEC6,>C6C6  * >48  H
+	DATA >00FC,>3030,>3030,>30FC  * >49  I
+	DATA >0006,>0606,>0606,>C67C  * >4A  J
+	DATA >00C6,>CCD8,>F0F8,>DCCE  * >4B  K
+	DATA >00C0,>C0C0,>C0C0,>C0FE  * >4C  L
+	DATA >00C6,>EEFE,>FED6,>C6C6  * >4D  M
+	DATA >00C6,>E6F6,>FEDE,>CEC6  * >4E  N
+	DATA >007C,>C6C6,>C6C6,>C67C  * >4F  O
+	DATA >00FC,>C6C6,>C6FC,>C0C0  * >50  P
+	DATA >007C,>C6C6,>C6DE,>CC7A  * >51  Q
+	DATA >00FC,>C6C6,>CEF8,>DCCE  * >52  R
+	DATA >0078,>CCC0,>7C06,>C67C  * >53  S
+	DATA >00FC,>3030,>3030,>3030  * >54  T
+	DATA >00C6,>C6C6,>C6C6,>C67C  * >55  U
+	DATA >00C6,>C6C6,>EE7C,>3810  * >56  V
+	DATA >00C6,>C6D6,>FEFE,>EEC6  * >57  W
+	DATA >00C6,>EE7C,>387C,>EEC6  * >58  X
+	DATA >00CC,>CCCC,>7830,>3030  * >59  Y
+	DATA >00FE,>0E1C,>3870,>E0FE  * >5A  Z
+	DATA >0078,>6060,>6060,>6078  * >5B  [
+	DATA >0000,>6030,>180C,>0600  * >5C  \ BACKSLASH
+	DATA >0078,>1818,>1818,>1878  * >5D  ]
+	DATA >0000,>3078,>CC00,>0000  * >5E  ^
+	DATA >0000,>0000,>0000,>00FE  * >5F  _ UNDERSCORE
+	DATA >0000,>6030,>1800,>0000  * >60  `
+	DATA >0008,>0CFE,>FFFE,>0C08  * >61  ARROW
+	DATA >0000,>0000,>0000,>0000  * >62
+	DATA >0000,>0000,>0000,>0000  * >63
+	DATA >0000,>0000,>0000,>0000  * >64
+	DATA >0000,>0000,>0000,>0000  * >65
+	DATA >0000,>0000,>0000,>0000  * >66
+	DATA >0000,>0000,>0000,>0000  * >67
+	DATA >0007,>1F3C,>78F0,>E0E0  * >68  <START>
+	DATA >FFFF,>8000,>0000,>0000  * >69
+	DATA >FFFF,>0000,>0000,>0000  * >6A
+	DATA >FFFF,>0000,>0000,>0000  * >6B
+	DATA >C3FB,>7F0F,>0703,>0303  * >6C
+	DATA >FFFF,>8080,>8080,>8080  * >6D
+	DATA >FFFF,>0C0C,>0C0C,>0C0C  * >6E
+	DATA >FFFF,>0000,>0000,>0000  * >6F
+	DATA >FFFF,>E0E0,>E0E0,>E0E0  * >70
+	DATA >FFFF,>0707,>0707,>0707  * >71
+	DATA >1F1F,>1C1C,>1C1C,>1C1C  * >72
+	DATA >FFFF,>0000,>0000,>0000  * >73
+	DATA >E0E0,>E0FF,>FF00,>0000  * >74
+	DATA >0707,>07FF,>FF07,>0707  * >75
+	DATA >FFFF,>0000,>0000,>0000  * >76
+	DATA >F8F8,>3B3F,>3F3E,>3C3C  * >77
+	DATA >1FFF,>F080,>0000,>0000  * >78
+	DATA >FFFF,>0000,>0000,>0000  * >79
+	DATA >FFFF,>0707,>0707,>0707  * >7A
+	DATA >FFFF,>0000,>0000,>0000  * >7B
+	DATA >FFFF,>0000,>0000,>0000  * >7C
+	DATA >C0F8,>7E0F,>0703,>0101  * >7D
+	DATA >010F,>3F78,>F0E0,>C0C0  * >7E
+	DATA >FFFF,>0000,>0000,>0000  * >7F
+	DATA >FFFF,>3C3C,>3C3C,>3C3C  * >80
+	DATA >FFFF,>0000,>0000,>0000  * >81
+	DATA >E0E0,>E0FF,>FF00,>0000  * >82
+	DATA >0000,>00FF,>FF07,>0707  * >83
+	DATA >E0E0,>E0E0,>E0E0,>E0E0  * >84
+	DATA >0303,>0303,>0303,>0303  * >85
+	DATA >0000,>0000,>0000,>0000  * >86
+	DATA >3030,>3030,>3030,>3030  * >87
+	DATA >0303,>0303,>0303,>0303  * >88
+	DATA >8080,>8080,>8080,>8080  * >89
+	DATA >0C0C,>0C0C,>0C0C,>0C0C  * >8A
+	DATA >0000,>0000,>0000,>0000  * >8B
+	DATA >E0E0,>E0E0,>E0E0,>E0E0  * >8C
+	DATA >0707,>0707,>0707,>0707  * >8D
+	DATA >1C1C,>1C1C,>1C1C,>1C1C  * >8E
+	DATA >0000,>0000,>0000,>0000  * >8F
+	DATA >0000,>0000,>FFFF,>C0C0  * >90
+	DATA >0707,>0707,>FFFF,>0707  * >91
+	DATA >FFFF,>0000,>0000,>0000  * >92
+	DATA >FCFC,>3C3C,>3C3C,>3C3C  * >93
+	DATA >0000,>0000,>0000,>0000  * >94
+	DATA >FFFF,>E0E0,>E0E0,>E0E0  * >95
+	DATA >FFFF,>0707,>0707,>0707  * >96
+	DATA >FFFF,>FCE0,>C080,>0000  * >97
+	DATA >F0F0,>0000,>0000,>0000  * >98
+	DATA >0101,>0101,>0101,>0101  * >99
+	DATA >C0C0,>C0C0,>C0C0,>C0C0  * >9A
+	DATA >0F0F,>0F0F,>0F0F,>0E0E  * >9B
+	DATA >FCFC,>FCFC,>FCFC,>1C1C  * >9C
+	DATA >0000,>0000,>0000,>0000  * >9D
+	DATA >0000,>0000,>FFFF,>C0C0  * >9E
+	DATA >0707,>0707,>FFFF,>0707  * >9F
+	DATA >E0E0,>E0E0,>E0E0,>E0E0  * >A0
+	DATA >0303,>0303,>0303,>0303  * >A1
+	DATA >0000,>0000,>0000,>0000  * >A2
+	DATA >3030,>3030,>3030,>3030  * >A3
+	DATA >0303,>0303,>0303,>0303  * >A4
+	DATA >8080,>8080,>8080,>C0E0  * >A5
+	DATA >0C0C,>0C0C,>0000,>0000  * >A6
+	DATA >0000,>0000,>0000,>0103  * >A7
+	DATA >E0E0,>E0E0,>E0E0,>E0E0  * >A8
+	DATA >0707,>0707,>0000,>0000  * >A9
+	DATA >1C1C,>FCFC,>1C1C,>1E1F  * >AA
+	DATA >0000,>0000,>0000,>0000  * >AB
+	DATA >C0C0,>C0C0,>0000,>0000  * >AC
+	DATA >0707,>0707,>0707,>0F1F  * >AD
+	DATA >0000,>0000,>0000,>0000  * >AE
+	DATA >3C3C,>3C3C,>3C3C,>3E3F  * >AF
+	DATA >0000,>0000,>0000,>0000  * >B0
+	DATA >E0E0,>FFFF,>0000,>0000  * >B1
+	DATA >0707,>FFFF,>0707,>0707  * >B2
+	DATA >0000,>0000,>0000,>80C0  * >B3
+	DATA >3030,>3030,>0000,>0000  * >B4
+	DATA >0101,>0101,>0101,>0101  * >B5
+	DATA >C0C0,>C0C0,>C0C0,>C0C0  * >B6
+	DATA >0E0E,>0E0E,>0E0E,>0E0E  * >B7
+	DATA >1C1C,>1C1C,>1C1C,>1E1F  * >B8
+	DATA >0000,>0000,>0000,>0000  * >B9
+	DATA >C0C0,>C0C0,>0000,>0000  * >BA
+	DATA >0707,>0707,>0707,>0F1F  * >BB
+	DATA >E0E0,>FFFF,>FFFF,>FFFF  * >BC
+	DATA >0303,>FFFF,>FFFF,>FFFF  * >BD
+	DATA >0000,>FFFF,>FFFF,>FFFF  * >BE
+	DATA >3030,>FFFF,>FFFF,>FFFF  * >BF
+	DATA >0303,>FFFF,>FFFF,>FFFF  * >C0
+	DATA >F0FE,>FFFF,>FFFF,>DFC3  * >C1
+	DATA >0000,>FFFF,>FFFF,>FFFF  * >C2
+	DATA >073F,>FFFF,>FFFF,>FCE0  * >C3
+	DATA >E0E0,>FFFF,>FFFF,>FFFF  * >C4
+	DATA >0000,>FFFF,>FFFF,>FFFF  * >C5
+	DATA >1F1F,>FFFF,>FFFF,>FCFC  * >C6
+	DATA >80F0,>FFFF,>FFFF,>FF1F  * >C7
+	DATA >0001,>FFFF,>FFFF,>FFFF  * >C8
+	DATA >3FFF,>FFFF,>FFFF,>E707  * >C9
+	DATA >0000,>FFFF,>FFFF,>FFFF  * >CA
+	DATA >3F3F,>FFFF,>FFFB,>F8F8  * >CB
+	DATA >80F0,>FFFF,>FFFF,>FF1F  * >CC
+	DATA >0000,>FFFF,>FFFF,>FFFF  * >CD
+	DATA >0707,>FFFF,>FFFF,>FFFF  * >CE
+	DATA >E0FC,>FFFF,>FFFF,>3F07  * >CF
+	DATA >0000,>FFFF,>FFFF,>FFFF  * >D0
+	DATA >0101,>FFFF,>FFFF,>FFFF  * >D1
+	DATA >C0C0,>FFFF,>FFFF,>FFFF  * >D2
+	DATA >0E0E,>FEFE,>FEFE,>FEFE  * >D3
+	DATA >1F1F,>1F1F,>0703,>0000  * >D4
+	DATA >80F0,>FFFF,>FFFF,>FF1F  * >D5
+	DATA >0001,>FFFF,>FFFF,>FFFF  * >D6
+	DATA >3FFF,>FFFF,>FCF8,>E000  * >D7 <END>
+
+* E/A environment for VDP registers
+	EVEN
+VDPREG	DATA >8000,>8200,>830E,>8401,>8506,>8600,>8705,>81E0
+
+* credits
+	EVEN
+CREDS	TEXT 'PROGRAM BY TURSI'
+CREDLN	EQU 16
+
+	EVEN
+HINTS	TEXT 'PRESS 1-'	
+HINTLN	EQU 8	
+	
+* Subroutines to ease VDP access
+
+* Write address (also write register)
+* R0 contains two preformatted bytes to write
+VWADR
+	SWPB R0
+	MOVB R0,@VDPWA
+	SWPB R0
+	MOVB R0,@VDPWA
+	B *R11
+
+* write two bytes to VDP
+* R0 contains the word to write
+VW2B
+  MOVB R0,@VDPWD
+  SWPB R0
+  MOVB R0,@VDPWD
+  SWPB R0
+  B *R11
+
+* multi-byte write - R0 is VDP address
+* R1 is CPU address
+* R2 is number of bytes
+* alters R12
+VMBW
+	ORI R0,>4000
+	MOV R11,R12
+	BL @VWADR
+MBLP
+	MOVB *R1+,@VDPWD
+	DEC R2
+	JNE MBLP
+	B *R12
+
+* multi-byte read - R0 is VDP address
+* R1 is CPU address
+* R2 is number of bytes
+* alters R12
+* Copy must preserve R0,R1,R2
+VMBR
+  MOV R11,R12
+  BL @VWADR
+	MOV R12,R0   * otherwise it will be overwritten
+MRLP
+  MOVB @VDPRD,*R1+
+  DEC R2
+  JNE MRLP
+  B *R0
+
+* multi-byte set - R0 is VDP address
+* R1 (high) is byte to write
+* R2 is number of bytes
+* R12 is altered
+VSET
+	ORI R0,>4000
+	MOV R11,R12
+	BL @VWADR
+SETLP
+	MOVB R1,@VDPWD
+	DEC R2
+	JNE SETLP
+	B *R12
+	
+* backup scratchpad to VDP
+* Assumes WP is >8300 and
+* Does not backup/restore R0-R3
+SCRBACK
+  LI R0,VDPSCRATCH
+  LI R1,>8308
+  LI R2,248
+  B @VMBW
+  
+* restore scratchpad from VDP
+* Assumes WP is >8300 and
+* Does not backup/restore R0-R3
+SCRREST
+  LI R0,VDPSCRATCH
+  LI R1,>8308
+  LI R2,248
+  B @VMBR
+
+
+* load the character set to PDT. First char is 30,
+* PDT is at >0800 (or will be), so we need to load
+* to >08F0
+LOADCH
+	LI R0,>08F0	* write address
+	LI R1,CHARS
+	LI R2,>0308
+	B @VMBW
+	
+* Load the color table - EA uses all F5
+SETCOL
+	LI R0,>0380
+	LI R1,>F500
+	LI R2,32
+	B @VSET
+
+* clear the screen - it's 768 bytes at >0000
+CLRSCR
+	CLR R0
+	LI R1,>2000
+	LI R2,768
+	B @VSET
+
+* print a string from VDP RAM to VDP
+* Also uppercases any lowercase text detected
+* R0 - dest address
+* R1 - source address
+* R2 - number of bytes
+* R12,R13,R14 used
+VPRINT
+	MOV R11,R12
+	ORI R0,>4000	* for writes
+VPLP
+	MOV R0,R13	* save it
+	MOV R1,R0
+	BL @VWADR
+	MOVB @VDPRD,R14
+* If it's lowercase (>61 through >7A), make upper (->20)
+	CI R14,>7A00
+	JH VPOK
+	CI R14,>6100
+	JL VPOK
+	AI R14,->2000
+VPOK
+	MOV R13,R0	* get it back
+	BL @VWADR
+	MOVB R14,@VDPWD
+	INC R0
+	INC R1
+	DEC R2
+	JNE VPLP
+	B *R12
+	
+* Compare two VDP buffers
+* R0 - buffer 1
+* R1 - buffer 2
+* R2 - buffer size
+* R12,R13,R14 used
+* Returns with EQ set if equal, or EQ reset if not (so JEQ works)
+VDPCMP
+	MOV R11,R12
+VCLP
+	MOV R0,R13	* save it
+	MOV R1,R0
+	BL @VWADR
+	MOVB @VDPRD,R14
+	MOV R13,R0	* get it back
+	BL @VWADR
+	INC R0
+	INC R1
+	CB @VDPRD,R14
+	JNE VCXIT	* differs - EQ IS RESET
+	DEC R2
+	JNE VCLP	* when count runs out, EQ IS SET
+VCXIT
+	B *R12
+
+* Load the EA registers -- the data is ordered
+* such that R1 is last, and it contains the screen enable
+* bit, so the screen stays blank till we're done
+LOADREG
+	MOV R11,R13
+	LI R1,VDPREG
+	LI R2,8
+REGLP
+	MOV *R1+,R0
+	BL @VWADR
+	DEC R2
+	JNE REGLP
+	B *R13
+	
+* Initialize KSCAN by calling with mode 5
+* also has an entry point where you set mode
+* in the MSB of R0
+DOSCAN
+	LI R0,>0500
+SCAN1
+	MOVB R0,@>8374
+	LWPI GPLWS
+	BL @SCAN
+	LWPI >8300
+	BL *R11
+
+* Read data from another bank - this little function
+* is copied to scratchpad at >8320 to get data from
+* other banks. It's a single word - it's not built for
+* speed. ;) For speed, get multiple words at a time.
+* R1 - Address to read
+* R2 - Bank to select
+* Data returned in R0
+RDBANK	EQU >8320
+_RDBNK	MOVB R2,*R2	* select bank
+	MOV *R1,R0	* get data
+	MOV R9,*R9	* R9 holds our menu bank
+	BL *R11
+
+* Copy RDBANK into scratchpad
+COPYRD
+	LI R0,RDBANK
+	LI R1,_RDBNK
+	MOV *R1+,*R0+
+	MOV *R1+,*R0+
+	MOV *R1+,*R0+
+	MOV *R1+,*R0+
+	B *R11
+
+* Find bank - this routine scans the banks to find the
+* menu - identified with a header of >AA71, and stores 
+* the resulting switch in R9. 
+* We need this for RDBANK. :)
+FINDBK
+* First, we need to copy our code into scratchpad - must be short!
+* Overlaps from R12 - do not make this block larger (will kill GPL)
+	LI R0,>8318
+	LI R1,_FNDBK
+	LI R2,18	* number of words to copy
+FNDCP
+	MOV *R1+,*R0+
+	DEC R2
+	JNE FNDCP
+
+* now jump to it
+	B @>8318
+* this is the code that's copied
+_FNDBK
+  MOV @HIGHEST,R9	* last bank
+	LI R1,>6000		* address to read
+	LI R2,>AA71		* pattern we are looking for
+	LI R3,>A571		* other pattern we will accept
+FNDLP
+	MOVB R9,*R9	* select bank
+	C *R1,R2
+	JEQ FOUNDB
+	C *R1,R3
+	JEQ FOUNDB
+	DECT R9
+	CI R9,>5FFE	* done search
+	JH FNDLP
+
+* If we didn't find it, we'll crash here anyway
+FOUNDB
+	B *R11		* jumps back to ROM, right bank should be active
+
+* System initialization - R9 is reserved for Bank address!
+START	
+* Set our workspace 
+	LWPI >8300
+
+* backup scratchpad
+  BL @SCRBACK
+
+* Figure out which bank we are in
+* do this before the blank, so if it fails,
+* we can see the crash ;)
+	BL @FINDBK
+* don't touch R9 after this!
+
+* Blank the screen - leave the 16k bit on!
+	LI R0,>8180
+	BL @VWADR
+
+* Load character set (we load Sometimes' menu font)
+	LI R0,>0900	* write address for char 32
+	LI R1,MENUFN
+	LI R2,>05C0
+	BL @VMBW
+	
+* Set colors - all blue on white except the title, which is red
+	LI R0,>0380
+	LI R1,>4F00		* dark blue
+	LI R2,32
+	BL @VSET
+	LI R0,>038D
+	LI R1,>6F00		* dark red
+	LI R2,14
+	BL @VSET
+
+* clear the screen
+	BL @CLRSCR
+	
+* delete all sprites
+	LI R0,>4300
+	BL @VWADR
+	LI R0,>D000
+	MOVB R0,@VDPWD
+
+* Load E/A registers
+	BL @LOADREG
+
+* different background color (may cause brief flicker)
+	LI R0,>870F		* background color
+	BL @VWADR
+
+* now set the keyboard mode to >05
+	BL @DOSCAN
+
+* load the bank read code into scratchpad
+	BL @COPYRD
+
+* now we are set to go! Write the header to the screen
+* 4 lines of 28 characters, just do it inline
+	LI R0,>4002		* VDP write address (2)
+	LI R1,>6800		* first char
+	LI R3,4			* lines
+LNLP
+	BL @VWADR
+	LI R2,28		* chars per line
+CHLP
+	MOVB R1,@VDPWD	* write byte
+	AI R1,>0100		* next char
+	DEC R2			* count down
+	JNE CHLP
+	AI R0,>0020		* add 32 
+	DEC R3
+	JNE LNLP		* next line
+	
+* and put the credit line at the bottom
+	LI R0,766-CREDLN
+	LI R1,CREDS
+	LI R2,CREDLN
+	BL @VMBW
+	
+* search through the banks and build a list of cartridges
+	LI R4,VDPBASE	* VDP workspace - 32 bytes per entry (long names may corrupt)
+	MOV R4,R5		* Highest VDP entry
+
+* first do GROM - if you don't want to include TI BASIC - start each base at >6000 instead of >0000
+	LI R3,>9800		* first GROM base
+GRMBLP
+  MOV @GPLSTART,R15	* address to check (configured in header)
+GRMLP
+	MOVB R15,@>0402(R3)	* load GROM address
+	SWPB R15
+	MOVB R15,@>0402(R3)
+	SWPB R15		* fixup
+	MOVB *R3,R0		* get first byte
+	SWPB R0
+	MOVB *R3,R0		* get second byte
+	SWPB R0
+	MOVB *R3,R10  * get third byte (optional program count, ignored)
+	CLR R10
+	MOVB *R3,R10  * get fourth byte (value to add for ROM bank)
+	SWPB R10
+	SLA R10,1     * multiply by 2
+	AI R10,>6000  * make into address
+	LI R6,>AA3F		* get the skip value
+	C R0,R6			  * check for to-skip bank
+	JEQ NEXTGR		* jump if >AA3F
+	CI R0,>A55A		* check for menu-only header
+	JEQ GMAYOK
+	CI R0,>AA5A		* check to see if we need to look at GROM + >1800 instead
+	JNE GNOFF
+
+	AI R15,>1800	* check at offset
+	JMP GRMLP
+
+GNOFF	
+	CB R0,R6		* check for valid header (no need to check for multicart bank)
+	JNE NEXTGR		* jump if not >AA
+	
+* may be okay - check for program - just skip two bytes
+GMAYOK
+	MOVB *R3,R0		* even though they block, everyone says GROMs are fussy.
+	NOP				* mine aren't.. not sure why I'm being so considerate. ;)
+	MOVB *R3,R0
+	NOP
+	MOVB *R3,R0		* get first byte
+	SWPB R0
+	MOVB *R3,R0		* get second byte
+	SWPB R0
+	MOV R0,R7		* save for the loop below
+
+* now we have a program list which works the same way as the ROM list does
+GPROG
+	MOV R7,R7		* test for zero
+	JEQ NEXTGR		* next GROM
+	MOV R4,R0
+	LI R1,>2000
+	LI R2,32
+	BL @VSET		* clear the buffer (makes matching easier)
+	MOV R4,R0		* Set VDP address (again)
+	ORI R0,>4000	* for writing
+	BL @VWADR		* now set
+	MOV R3,R0   * write bank (GROM is all higher than 8000, since starts at >9800)
+	BL @VW2B
+	MOVB R7,@>0402(R3) * load grom address
+	SWPB R7
+	MOVB R7,@>0402(R3)
+	SWPB R7			* fix up (delay)
+	MOVB *R3,R7		* get first byte
+	SWPB R7
+	MOVB *R3,R7		* get second byte
+	SWPB R7			* just save it for now (will test at top of loop)
+	MOVB *R3,@VDPWD	* first byte of program address into VDP
+	NOP				* be safe...?
+	MOVB *R3,@VDPWD	* second byte of program address into VDP
+	NOP
+	MOV R10,R0      * write ROM bank address
+	BL @VW2B
+	MOVB *R3,R8		* get length of program name
+	SRL R8,8		* make into a count
+GNAMEL
+	MOVB *R3,@VDPWD	* copy one byte of the name
+	DEC R8
+	JNE GNAMEL
+
+* Probably less important to check for duplicates on GROM, but might as well!
+* we still need to preserve R3,R4,R5
+	LI R6,VDPBASE
+	INCT R6			* Skip bank ID
+	MOV R4,R8	
+	INCT R8			* Skip bank ID
+CMPGLP
+	C R6,R8
+	JEQ GNAMEOK		* search complete, no match found
+	MOV R6,R0
+	MOV R8,R1
+	LI R2,30
+	BL @VDPCMP		* Compare VDP buffers
+	JEQ GNAMEBAD
+	AI R6,32		* no match, so check the next buffer
+	JMP CMPGLP
+GNAMEOK	
+* This one matched, so increment the buffers
+	MOV R4,R5		* save as highest valid buffer
+	AI R4,32		* Next buffer
+* jumps here if name was a duplicate (and we'll reuse the same buffer)
+GNAMEBAD
+	JMP GPROG		* Check next name entry
+
+* now we need to switch to the next GROM and check that one
+NEXTGR
+	LI R0,>0800		* test if offset
+	COC R0,R15		
+	JNE NOOFF
+	AI R15,->1800	* undo offset
+NOOFF	
+	AI R15,>2000	* next GROM
+	JNE GRMLP		* carry on
+	AI R3,>0004		* next GROM base
+	CI R3,>9840		* are we done?
+	JNE GRMBLP
+
+* now do ROM banks
+  MOV @HIGHEST,R3	* Start at the end of the ROM
+SRCHLP
+	MOV R3,R2
+	LI R1,>6000
+	BL @RDBANK		* check the header
+	LI R6,>AA3F		* get the skip value
+	C R0,R6			* check for to-skip bank
+	JEQ NEXTBK		* jump if should skip (>AA3F)
+	CI R0,>AA71		* check for ourselves to-skip bank
+	JEQ NEXTBK		* jump if should skip (>AA71)
+	CI R0,>A55A		* check for menu-only header
+	JEQ MAYBOK
+	CB R0,R6		* check for valid header
+	JNE NEXTBK		* Jump if no >AA
+
+* this one looks good - set up the program name chain
+MAYBOK
+	LI R1,>6006		* address of program list
+	BL @RDBANK
+	MOV R0,R7		* save it for the loop below
+
+* load the bank into the first two bytes, start address into the next two bytes, then copy the name
+LPROG
+	MOV R7,R7		* test it against 0
+	JEQ NEXTBK		* no program list!
+	MOV R4,R0
+	LI R1,>2000
+	LI R2,32
+	BL @VSET		* clear the buffer (makes matching easier)
+	MOV R4,R0		* Set VDP address (again)
+	ORI R0,>4000	* for writing
+	BL @VWADR		* now set
+	MOV R3,R0   * write bank
+	BL @VW2B
+	MOV R7,R1		* address of next entry
+	MOV R3,R2		* load bank
+	BL @RDBANK		* get it
+	MOV R0,R7		* just save it for now (will test at top of loop)
+	INCT R1			* next value is the program address
+	BL @RDBANK		* got it
+	BL @VW2B      * write program address (from R0)
+	CLR R0      * write zeros for GROM rom bank
+	BL @VW2B
+	INCT R1			* now points at length and first byte of name
+	BL @RDBANK
+	MOV R0,R8		* save for count
+	SWPB R8
+	MOVB R8,@VDPWD	* write the first char while we have it
+	ANDI R8,>00FF	* mask off just the count byte
+NAMELP
+	DEC R8			* and we wrote one already
+	JEQ DONENM		* need to check each byte (R8)
+	INCT R1			* next word
+	BL @RDBANK		* get it
+	MOVB R0,@VDPWD	* write it
+	DEC R8
+	JEQ DONENM
+	SWPB R0
+	MOVB R0,@VDPWD	* other byte
+	JMP NAMELP		* loop around
+DONENM
+
+* now this is the tricky part -- see whether that data we just copied is a match
+* for anywhere else. This way, even if we run on a smaller EPROM, we don't
+* duplicate entries. Note if you really put duplicate entries in, you are
+* out of luck - just change the name slightly ;)
+* we still need to preserve R3,R4,R5
+	LI R6,VDPBASE
+	INCT R6			* Skip bank ID
+	MOV R4,R8	
+	INCT R8			* Skip bank ID
+CMPLP
+	C R6,R8
+	JEQ NAMEOK		* search complete, no match found
+	MOV R6,R0
+	MOV R8,R1
+	LI R2,30
+	BL @VDPCMP		* Compare VDP buffers
+	JEQ NAMEBAD
+	AI R6,32		* no match, so check the next buffer
+	JMP CMPLP
+
+NAMEOK	
+* This one matched, so increment the buffers
+	MOV R4,R5		* save as highest valid buffer
+	AI R4,32		* Next buffer
+* jumps here if name was a duplicate (and we'll reuse the same buffer)
+NAMEBAD
+	JMP LPROG		* Check next name entry
+
+* now we need to switch to the next bank and check that one
+NEXTBK
+	DECT R3
+	CI R3,>5FFE
+	JH SRCHLP
+
+* we are done! VDP now has a list of valid names and addresses, R5 points to the
+* highest entry. We can go ahead and list them to the screen now
+* with 512k, there can be 64 banks, so we need paging.
+
+* display the number of available pages, if more than one
+	CI R5,VDPBASE+544	* 17*32
+	JL ONEPAGE			* jump if only one page
+	LI R0,>02E2			* start of last line (+2) in VDP
+	LI R1,HINTS
+	LI R2,HINTLN
+	BL @VMBW
+	MOV R5,R0			* calculate the last page
+	AI R0,-VDPBASE		* last valid entry as a byte offset pointer
+	SRA R0,5			* /32 = number of entries-1
+	LI R1,>3000			* ASCII '0'
+CNTLP
+	AI R1,>0100			* add one
+	AI R0,-17			* 17 entries per page
+	JGT CNTLP			* till we go negative
+	MOVB R1,@VDPWD		* display the count
+	
+ONEPAGE
+	SETO R4			* row of arrow - joystick movement - >FFFF means not enabled
+	LI R15,VDPBASE	* VDP buffer offset
+RESHWLP
+	LI R3,164		* screen address (seventh line, in 4 chars)
+	MOV R15,R7		* Work area
+	CLR R6			* counter
+SHOWLP
+	MOV R3,R0
+	ORI R0,>4000	* for write
+	BL @VWADR
+	MOV R6,R1
+	AI R1,'A'
+	SWPB R1			* Get 'A' plus index into high byte
+	MOVB R1,@VDPWD
+	LI R1,>2000		* ' ' character
+	MOVB R1,@VDPWD
+	MOV R3,R0		* dest address
+	INCT R0			* skip "A-" part
+	MOV R7,R1		* src address
+	C *R1+,*R1+		* increment by 4 to skip header
+	INCT R1       * plus two more bytes
+	LI R2,22		* max of 22 bytes (space padded)
+	BL @VPRINT		* put it on the screen
+	INC R6			* next one
+	AI R3,32		* next screen line
+	AI R7,32		* next buffer
+	CI R3,704		* check for bottom of the screen
+	JHE OVERLP		* early out
+	C R7,R5
+	JLE SHOWLP		* not done
+* ran out of items - clear the rest of the lines in case there was something there
+CLRLP
+	MOV R3,R0		* screen address
+	LI R1,>2000		* space
+	LI R2,24		* 24 bytes on a line
+	BL @VSET
+	AI R3,32		* next screen line
+	CI R3,704		* check for bottom of the screen
+	JL CLRLP
+	
+OVERLP
+	
+* Now! select from the menu... keypress is A-something.. we'll just check against R5 when we get it
+KEYLP
+	LIMI 2			* allow interrupts (for QUIT)
+	LIMI 0
+	BL @DOSCAN
+	CLR R3
+	MOVB @>8375,R3
+	CI R3,>FF00		* no key
+	JEQ JOYST
+
+* try number keys
+TRYNUM
+	CI R3,>3100		* '1'
+	JL TRYLET
+	CI R3,>3900		* '9'
+	JH TRYLET
+* number key - calculate a page and try that
+	SWPB R3
+	AI R3,->0030	* make a number from 1-9
+	LI R0,VDPBASE	* start at page 0
+PGLP
+	DEC R3
+	JEQ DNPGLP
+	AI R0,544		* 17*32
+	JMP PGLP
+DNPGLP
+	C R0,R5			* check for valid
+	JH KEYLP		* nope
+	MOV R0,R15		* yes, save it
+	JMP RESHWLP
+	
+* If it's lowercase (>61 through >7A), make upper (->20)
+TRYLET
+	CI R3,>7A00
+	JH KEYOK
+	CI R3,>6100
+	JL KEYOK
+	AI R3,->2000
+KEYOK
+	CI R3,>4100		* 'A'
+	JL KEYLP
+	CI R3,>5100		* 'Q'
+	JH KEYLP
+	JMP GOTLET
+
+* check joystick
+JOYST
+	LI R0,>0100
+	BL @SCAN1
+	MOVB @>8375,R3
+	CI R3,>1200		* fire
+	JNE JOYON
+* pressed fire - check action
+	CI R4,>FFFF
+	JEQ TURNON
+	COC @HIBIT,R4
+	JEQ KEYLP
+* arrow active, flag not set, so take it
+	MOV R4,R3
+	JMP GOTLE2
+* activate the arrow
+TURNON
+	CLR R4
+	CLR R2
+* draw the arrow and set the flag for release
+DRAWAR
+* First erase the old one in R2
+	MOV R2,R0
+	SLA R0,5		* multiply by 32 for row
+	AI R0,>40a2		* add base offset
+	BL @VWADR		* set address
+	LI R1,>2000		* load byte
+	MOVB R1,@VDPWD	* write it
+* now draw the new one in R4
+	MOV R4,R0
+	SLA R0,5		* multiply by 32 for row
+	AI R0,>40a2		* add base offset
+	BL @VWADR		* set address
+	LI R1,>6100		* load byte
+	MOVB R1,@VDPWD	* write it
+	SOCB @HIBIT,R4	* set flag
+	JMP KEYLP
+	
+* check joystick directions
+JOYON
+	CI R4,>FFFF
+	JEQ KEYLP		* don't do this till fire first pressed
+	MOVB @>8376,R3	* joystick Y axis
+	CI R3,>0400		* up
+	JNE JOY2
+	COC @HIBIT,R4
+	JEQ KEYLP
+	MOV R4,R4
+	JEQ JOYUP
+	MOV R4,R2		* save old pos
+	DEC R4
+	JMP DRAWAR
+JOY2
+	CI R3,>FC00		* down
+	JNE JOY3
+	COC @HIBIT,R4
+	JEQ KEYLP
+	MOV R4,R0
+	SLA R0,5
+	A R15,R0		* R5 has the max VDP buffer
+	C R0,R5			* check against maximum value
+	JHE KEYLP
+	CI R4,16		* check against maximum possible row
+	JHE JOYDN
+	MOV R4,R2		* save old pos
+	INC R4
+	JMP DRAWAR
+* no joystick movement, clear flag
+JOY3
+	SZCB @HIBIT,R4
+	B @KEYLP
+	
+* joystick scroll up - we might not be able to
+JOYUP
+	CI R15,VDPBASE	* check against true base
+	JH JOYUP1
+	B @KEYLP
+JOYUP1	
+	AI R15,-32		* back up one entry
+	B @RESHWLP		* redraw
+	
+* joystick scroll down - we already know we aren't at max
+JOYDN
+	AI R15,32		* update base by one row
+	B @RESHWLP		* redraw the text
+			
+* Got a letter, convert it to an index in VDP (so we can range test it against R5)
+GOTLET
+	SWPB R3			* get in low byte
+	AI R3,-65		* subtract the 'A'
+GOTLE2
+	SLA R3,5		* multiply by 32
+	A R15,R3		* add the base address
+	C R3,R5			* R5 has the highest valid buffer
+	JLE GOTLE2A
+	B @KEYLP
+GOTLE2A	
+* We've got a valid signal - set the bank and start the game - we again need a little code in scratchpad
+* first, we might as well clear the screen, and reset the E/A environment
+	BL @CLRSCR
+	BL @LOADCH
+	BL @SETCOL
+	BL @LOADREG
+	BL @DOSCAN
+* restore scratchpad now, we're ready to launch (modifies R0,R1,R2 and replaces all but R3)	
+  BL @SCRREST
+* Set the VDP read address from R3
+	MOV R3,R0
+	BL @VWADR
+* Switch to the GPL workspace now, so it's ready when we jump - we don't need any old registers
+	LWPI GPLWS
+* get the addresses from the VDP table
+	MOVB @VDPRD,R0	* get bank address into R0
+	SWPB R0
+	MOVB @VDPRD,R0	
+	SWPB R0			* normalize order
+	MOVB @VDPRD,R1	* get start address into R1
+	SWPB R1
+	MOVB @VDPRD,R1
+	SWPB R1			* normalize order
+	MOV R0,R0		* check for a GROM (bank is negative, ie: >9800 and above)
+	JLT GRMLOAD
+	
+* now we copy the trampoline into scratchpad, and never return. If you were doing
+* a lot of bank switched function calls, you'd leave the trampoline there rather
+* than copy it when you need it
+DOTHETRAMP
+	LI R2,>8310		* address in scratchpad (overwriting the old read function)
+	LI R3,TRAMP		* address of code
+	MOV *R3+,*R2+
+	MOV *R3+,*R2+	* only two words
+	B @>8310		* execute it
+
+* this code executes from scratchpad to start the game
+TRAMP
+	MOVB R0,*R0		* do the bank switch
+	B *R1			* jump to the code
+
+* this code jumps into the GPL interpreter at the specified address
+* we don't intend to return, so as long as we didn't break anything,
+* getting back into GPL should be easy! Workspace >83E0 already set
+* Using tips from TI Intern
+GRMLOAD
+	MOV R0,R13	* set the GROM base
+	MOV R1,R6		* set the start address
+  MOVB @VDPRD,R0  * Get ROM page address
+  SWPB R0
+  MOVB @VDPRD,R0
+  SWPB R0     * fix order
+  LI R1,>0060 * GPL interpreter with start address in R6
+  JMP DOTHETRAMP
+
+	END
+	
